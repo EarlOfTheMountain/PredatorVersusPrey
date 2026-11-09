@@ -1,14 +1,16 @@
-/* pixelduel -- game: arena state, combat resolution, rendering. */
+/* pvp -- game: arena state, combat resolution, rendering. */
 #ifndef PD_GAME_H
 #define PD_GAME_H
 
 #include <SDL3/SDL.h>
+#include "arena.h"
 #include "input.h"
 #include "player.h"
 
 typedef enum { ST_PLAYING, ST_ROUND_OVER } GameState;
 
 typedef struct {
+        Arena arena;     /* loaded before the first game_reset() */
         Player players[2];
         GameState state;
         int winner;      /* 0 or 1 when state == ST_ROUND_OVER */

@@ -1,8 +1,9 @@
-/* pixelduel -- player: movement, facing, stab and dodge roll. */
+/* pvp -- player: movement, facing, stab and dodge roll. */
 #ifndef PD_PLAYER_H
 #define PD_PLAYER_H
 
 #include <SDL3/SDL.h>
+#include "arena.h"
 #include "config.h"
 #include "input.h"
 
@@ -14,7 +15,7 @@ typedef struct {
         Dir facing;
         int hp;
 
-        /* dodge roll (proto GW2 dodge: i-frames now, energy cost later) */
+        /* dodge roll (proto GW2 dodge: paid in stamina) */
         float dash_t;  /* seconds of roll left */
         float dash_cd; /* seconds until the roll is ready */
         Dir dash_dir;
@@ -25,14 +26,24 @@ typedef struct {
         bool attack_hit;     /* a stab only hits once */
         Dir attack_dir;      /* facing captured when the stab started */
 
+        /* input buffering: presses queue up for PD_INPUT_BUFFER_TIME */
+        float attack_buf;
+        float dash_buf;
+
+        /* stamina */
+        float stamina;    /* 0..PD_STAMINA_MAX */
+        float stamina_cd; /* regen pause after spending */
+
         /* feedback */
         float iframes;   /* invulnerable seconds left (hurt or rolling) */
         float hit_flash; /* white flash seconds left */
         SDL_FPoint kb;   /* knockback velocity, decays over time */
+
+        InputState last_in; /* previous polled input, for press edges */
 } Player;
 
 void player_spawn(Player *p, float x, float y);
-void player_update(Player *p, const InputState *in, float dt, const SDL_FRect *bounds);
+void player_update(Player *p, const InputState *in, float dt, const Arena *arena);
 /* Unit vector for a facing direction (also used for knockback). */
 SDL_FPoint player_dir_vec(Dir d);
 /* The stab's hitbox; meaningful while player_attack_active() is true. */

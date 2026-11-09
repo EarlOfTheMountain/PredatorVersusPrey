@@ -1,11 +1,8 @@
 #include "game.h"
 #include "config.h"
 
-/* --- palette (Sweetie-16 inspired, a nod to the 16-bit target) --- */
-static const SDL_Color C_BG = { 0x0f, 0x10, 0x19, 255 };
-static const SDL_Color C_FLOOR_A = { 0x20, 0x24, 0x38, 255 };
-static const SDL_Color C_FLOOR_B = { 0x24, 0x28, 0x3e, 255 };
-static const SDL_Color C_WALL = { 0x5a, 0x6b, 0x86, 255 };
+/* --- palette (Sweetie-16 inspired, a nod to the 16-bit target) ---
+ * background / floor / wall colors live in arena.c now */
 static const SDL_Color C_P1 = { 0xe4, 0x3b, 0x44, 255 };
 static const SDL_Color C_P1_DARK = { 0x8f, 0x20, 0x28, 255 };
 static const SDL_Color C_P2 = { 0x63, 0xc7, 0x4d, 255 };
@@ -82,6 +79,19 @@ static void draw_player(SDL_Renderer *r, const Player *p, SDL_Color body, SDL_Co
         }
 }
 
+/* slim energy bar under each player's hearts, GW2-style */
+static void draw_stamina(SDL_Renderer *r, int player, float stamina)
+{
+        const SDL_Color c = (player == 0) ? C_P1 : C_P2;
+        const float w = 36.0f;
+        const float x = (player == 0) ? 12.0f : PD_VIEW_W - 12.0f - w;
+        const float frac = SDL_clamp(stamina / PD_STAMINA_MAX, 0.0f, 1.0f);
+        fill(r, (SDL_FRect){ x, 17.0f, w, 2.0f }, C_HEART_OFF);
+        if (frac > 0.0f) {
+                fill(r, (SDL_FRect){ x, 17.0f, w * frac, 2.0f }, c);
+        }
+}
+
 static void draw_hearts(SDL_Renderer *r, int player, int hp)
 {
         const SDL_Color c = (player == 0) ? C_P1 : C_P2;
@@ -98,9 +108,9 @@ static void draw_hearts(SDL_Renderer *r, int player, int hp)
 
 void game_reset(Game *g)
 {
-        player_spawn(&g->players[0], 40.0f, (PD_VIEW_H - PD_PLAYER_SIZE) / 2.0f);
-        player_spawn(&g->players[1], PD_VIEW_W - 40.0f - PD_PLAYER_SIZE,
-                     (PD_VIEW_H - PD_PLAYER_SIZE) / 2.0f);
+        /* spawns come from the arena (Tiled p1/p2 objects or the legacy ring) */
+        player_spawn(&g->players[0], g->arena.p1_spawn.x, g->arena.p1_spawn.y);
+        player_spawn(&g->players[1], g->arena.p2_spawn.x, g->arena.p2_spawn.y);
         g->state = ST_PLAYING;
         g->winner = -1;
         g->hitstop_t = 0.0f;
@@ -200,10 +210,8 @@ void game_update(Game *g, const InputState *override_inputs, float dt)
                 input_poll(1, &live[1]);
         }
 
-        const SDL_FRect bounds = { PD_WALL, PD_WALL, PD_VIEW_W - 2.0f * PD_WALL,
-                                   PD_VIEW_H - 2.0f * PD_WALL };
         for (int i = 0; i < 2; i++) {
-                player_update(&g->players[i], in[i], dt, &bounds);
+                player_update(&g->players[i], in[i], dt, &g->arena);
         }
 
         separate_bodies(&g->players[0], &g->players[1]);
@@ -220,27 +228,8 @@ void game_render(Game *g, SDL_Renderer *r)
                 g_oy = (float)(SDL_rand(2001) - 1000) / 1000.0f * m;
         }
 
-        /* background + checkerboard floor */
-        fill(r, (SDL_FRect){ 0.0f, 0.0f, PD_VIEW_W, PD_VIEW_H }, C_BG);
-        fill(r, (SDL_FRect){ PD_WALL, PD_WALL, PD_VIEW_W - 2.0f * PD_WALL,
-                             PD_VIEW_H - 2.0f * PD_WALL },
-             C_FLOOR_B);
-        for (int y = PD_WALL; y < PD_VIEW_H - PD_WALL; y += 16) {
-                for (int x = PD_WALL; x < PD_VIEW_W - PD_WALL; x += 16) {
-                        if (((x / 16) + (y / 16)) % 2 == 0) {
-                                fill(r, (SDL_FRect){ (float)x, (float)y, 16.0f, 16.0f },
-                                     C_FLOOR_A);
-                        }
-                }
-        }
-
-        /* arena walls, drawn over the floor edges */
-        fill(r, (SDL_FRect){ 0.0f, 0.0f, PD_VIEW_W, PD_WALL }, C_WALL);
-        fill(r, (SDL_FRect){ 0.0f, PD_VIEW_H - PD_WALL, PD_VIEW_W, PD_WALL }, C_WALL);
-        fill(r, (SDL_FRect){ 0.0f, PD_WALL, PD_WALL, PD_VIEW_H - 2.0f * PD_WALL }, C_WALL);
-        fill(r, (SDL_FRect){ PD_VIEW_W - PD_WALL, PD_WALL, PD_WALL,
-                             PD_VIEW_H - 2.0f * PD_WALL },
-             C_WALL);
+        /* floor + walls come from the arena (Tiled map or legacy ring) */
+        arena_render(&g->arena, r);
 
         /* the fighters */
         for (int i = 0; i < 2; i++) {
@@ -248,9 +237,11 @@ void game_render(Game *g, SDL_Renderer *r)
                             (i == 0) ? C_P1_DARK : C_P2_DARK);
         }
 
-        /* HUD hearts */
+        /* HUD hearts + stamina */
         draw_hearts(r, 0, g->players[0].hp);
         draw_hearts(r, 1, g->players[1].hp);
+        draw_stamina(r, 0, g->players[0].stamina);
+        draw_stamina(r, 1, g->players[1].stamina);
 
         /* round-over banner */
         if (g->state == ST_ROUND_OVER) {

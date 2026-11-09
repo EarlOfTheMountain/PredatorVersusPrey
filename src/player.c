@@ -24,9 +24,10 @@ void player_spawn(Player *p, float x, float y)
         p->pos.h = PD_PLAYER_SIZE;
         p->facing = DIR_DOWN;
         p->hp = PD_PLAYER_MAX_HP;
+        p->stamina = PD_STAMINA_MAX;
 }
 
-void player_update(Player *p, const InputState *in, float dt, const SDL_FRect *bounds)
+void player_update(Player *p, const InputState *in, float dt, const Arena *arena)
 {
         /* 1) tick timers down, never below zero */
         p->dash_cd = SDL_max(0.0f, p->dash_cd - dt);
@@ -34,8 +35,26 @@ void player_update(Player *p, const InputState *in, float dt, const SDL_FRect *b
         p->attack_anim_t = SDL_max(0.0f, p->attack_anim_t - dt);
         p->iframes = SDL_max(0.0f, p->iframes - dt);
         p->hit_flash = SDL_max(0.0f, p->hit_flash - dt);
+        p->attack_buf = SDL_max(0.0f, p->attack_buf - dt);
+        p->dash_buf = SDL_max(0.0f, p->dash_buf - dt);
+        p->stamina_cd = SDL_max(0.0f, p->stamina_cd - dt);
+        if (p->stamina_cd <= 0.0f) {
+                p->stamina = SDL_min(PD_STAMINA_MAX,
+                                     p->stamina + PD_STAMINA_REGEN * dt);
+        }
 
-        /* 2) desired direction from input */
+        /* 2) press edges feed the action buffers: a stab or roll pressed a
+         * few frames early stays queued (PD_INPUT_BUFFER_TIME) and fires
+         * the instant the action is possible */
+        if (in->attack && !p->last_in.attack) {
+                p->attack_buf = PD_INPUT_BUFFER_TIME;
+        }
+        if (in->dash && !p->last_in.dash) {
+                p->dash_buf = PD_INPUT_BUFFER_TIME;
+        }
+        p->last_in = *in;
+
+        /* 3) desired direction from input */
         const int dx = (in->right ? 1 : 0) - (in->left ? 1 : 0);
         const int dy = (in->down ? 1 : 0) - (in->up ? 1 : 0);
 
@@ -50,24 +69,32 @@ void player_update(Player *p, const InputState *in, float dt, const SDL_FRect *b
                 p->facing = DIR_UP;
         }
 
-        /* 3) dodge roll trigger (TODO later: require energy, GW2-style) */
-        if (in->dash && p->dash_cd <= 0.0f && p->dash_t <= 0.0f && p->attack_anim_t <= 0.0f) {
+        /* 4) dodge roll trigger: buffered press + enough stamina */
+        if (p->dash_buf > 0.0f && p->stamina >= PD_STAMINA_DASH &&
+            p->dash_cd <= 0.0f && p->dash_t <= 0.0f && p->attack_anim_t <= 0.0f) {
                 p->dash_t = PD_DASH_TIME;
                 p->dash_cd = PD_DASH_COOLDOWN;
                 p->dash_dir = p->facing; /* facing already reflects held input */
                 p->iframes = SDL_max(p->iframes, PD_DASH_IFRAMES);
                 p->attack_anim_t = 0.0f; /* a roll cancels a stab wind-up */
+                p->stamina -= PD_STAMINA_DASH;
+                p->stamina_cd = PD_STAMINA_REGEN_DELAY;
+                p->dash_buf = 0.0f;
         }
 
-        /* 4) stab trigger */
-        if (in->attack && p->attack_cd <= 0.0f && p->dash_t <= 0.0f) {
+        /* 5) stab trigger */
+        if (p->attack_buf > 0.0f && p->stamina >= PD_STAMINA_ATTACK &&
+            p->attack_cd <= 0.0f && p->dash_t <= 0.0f) {
                 p->attack_anim_t = PD_ATTACK_ANIM;
                 p->attack_cd = PD_ATTACK_COOLDOWN;
                 p->attack_hit = false;
                 p->attack_dir = p->facing;
+                p->stamina -= PD_STAMINA_ATTACK;
+                p->stamina_cd = PD_STAMINA_REGEN_DELAY;
+                p->attack_buf = 0.0f;
         }
 
-        /* 5) velocity: an active roll overrides walking */
+        /* 6) velocity: an active roll overrides walking */
         SDL_FPoint vel = { 0.0f, 0.0f };
         if (p->dash_t > 0.0f) {
                 p->dash_t = SDL_max(0.0f, p->dash_t - dt);
@@ -80,16 +107,21 @@ void player_update(Player *p, const InputState *in, float dt, const SDL_FRect *b
                 vel.y = (float)dy / len * PD_PLAYER_SPEED;
         }
 
-        /* 6) integrate position + knockback; knockback decays each tick */
+        /* 7) integrate position + knockback; knockback decays each tick.
+         * Axis-by-axis with revert-on-block so bodies slide along walls. */
+        const float old_x = p->pos.x;
+        const float old_y = p->pos.y;
         p->pos.x += (vel.x + p->kb.x) * dt;
+        if (arena_rect_solid(arena, p->pos)) {
+                p->pos.x = old_x;
+        }
         p->pos.y += (vel.y + p->kb.y) * dt;
+        if (arena_rect_solid(arena, p->pos)) {
+                p->pos.y = old_y;
+        }
         const float decay = 1.0f / (1.0f + PD_KNOCKBACK_FRICTION * dt);
         p->kb.x *= decay;
         p->kb.y *= decay;
-
-        /* 7) stay inside the arena */
-        p->pos.x = SDL_clamp(p->pos.x, bounds->x, bounds->x + bounds->w - p->pos.w);
-        p->pos.y = SDL_clamp(p->pos.y, bounds->y, bounds->y + bounds->h - p->pos.h);
 }
 
 SDL_FRect player_attack_hitbox(const Player *p)

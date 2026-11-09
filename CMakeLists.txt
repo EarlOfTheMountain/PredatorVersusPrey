@@ -1,14 +1,18 @@
-# pixelduel -- build with SDL3
+# Predator Versus Prey (pvp) -- build with SDL3
 #
-# FreeBSD:  pkg install sdl3         (CMake finds it automatically under /usr/local)
+# FreeBSD:  pkg install sdl3 cmake
+# Debian:   apt install libsdl3-dev cmake
+# Arch:     pacman -S sdl3 cmake
 # Build:    cmake -B build && cmake --build build
-# Run:      ./build/pixelduel        (or: ./build/pixelduel --selftest)
+# Run:      ./build/pvp                       (built-in ring arena)
+#           ./build/pvp maps/duel.tmj         (a Tiled map)
+#           ./build/pvp --selftest            (headless smoke test)
 #
 # If SDL3 lives somewhere unusual, point CMake at its cmake config:
 #   cmake -B build -DCMAKE_PREFIX_PATH=/prefix/containing/lib/cmake/SDL3
 
 cmake_minimum_required(VERSION 3.16)
-project(pixelduel VERSION 0.2.0 LANGUAGES C)
+project(PredatorVersusPrey VERSION 0.3.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -16,18 +20,18 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
 find_package(SDL3 REQUIRED CONFIG)
 
-add_executable(pixelduel
+add_executable(pvp
         src/main.c
         src/game.c
         src/player.c
-        src/input.c)
+        src/input.c
+        src/arena.c)
 
-target_include_directories(pixelduel PRIVATE include)
-target_link_libraries(pixelduel PRIVATE SDL3::SDL3)
+target_include_directories(pvp PRIVATE include)
+target_link_libraries(pvp PRIVATE SDL3::SDL3)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(pixelduel PRIVATE -Wall -Wextra)
+        target_compile_options(pvp PRIVATE -Wall -Wextra)
 endif()
